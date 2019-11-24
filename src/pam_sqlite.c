@@ -15,6 +15,7 @@
 
 #define QUERY_STRING "SELECT * from Users WHERE Username=?1"
 #define UPDATE_STRING "UPDATE Users SET Password=?1 WHERE Username=?2"
+#define LOG_STRING "INSERT INTO Logs VALUES( ?1, CURRENT_TIMESTAMP)"
 
 bool auth_user(const char *,const char *, const char *);
 void change_pass(const char *,const char *, const char *);
@@ -120,6 +121,52 @@ void change_pass(const char *dbfile, const char *username, const char *password)
   return;
   
 }
+
+void logSqlite(const char *dbfile, const char *username){
+
+  sqlite3 *db;
+  sqlite3_stmt *res;
+
+  int rc = sqlite3_open(dbfile,&db);
+
+  if(rc != SQLITE_OK){
+    syslog(LOG_CRIT, "Unable to open database %s", dbfile);
+    sqlite3_close(db);
+    return;
+  }
+
+
+  rc = sqlite3_prepare_v2(db, LOG_STRING, -1, &res, NULL);
+
+  if(rc != SQLITE_OK){
+    syslog(LOG_CRIT, "Unable to open database %s", dbfile);
+    sqlite3_close(db);
+    return;
+  }
+
+  rc = rc & sqlite3_bind_text(res, 1, username, strlen(username), SQLITE_STATIC);
+  
+  
+  if(rc != SQLITE_OK){
+    syslog(LOG_CRIT, "Unable to query database %s", dbfile);
+    sqlite3_close(db);
+    return;
+  }
+
+  rc = sqlite3_step(res);
+
+  if(rc != SQLITE_OK)
+    {
+      syslog(LOG_CRIT, "Unable to update log for user %s", username);
+      sqlite3_close(db);
+      return;
+    }
+  
+  return;
+
+
+}
+  
 
 PAM_EXTERN int pam_sm_authenticate(pam_handle_t *handle, int flags, int argc,
 				   const char **argv)
@@ -233,7 +280,18 @@ PAM_EXTERN int pam_sm_setcred(pam_handle_t *pamh, int flags, int argc,
 PAM_EXTERN int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc,
 				   const char **argv)
 {
-	/* const char *username; */
+	const char *username;
+
+	if(argc < 1){
+	  syslog(LOG_CRIT, "Unable to get db file name");
+	  return PAM_PERM_DENIED;
+	}
+
+
+	pam_get_item(pamh, PAM_USER, (const void**)&username);
+
+	logSqlite(argv[0], username);
+
 	/* char dir_path[512]; */
 
 	/* /\* Get the username from PAM *\/ */

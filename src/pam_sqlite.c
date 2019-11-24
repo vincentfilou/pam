@@ -15,7 +15,7 @@
 
 #define QUERY_STRING "SELECT * from Users WHERE Username=?1"
 #define UPDATE_STRING "UPDATE Users SET Password=?1 WHERE Username=?2"
-#define LOG_STRING "INSERT INTO Logs VALUES( ?1, CURRENT_TIMESTAMP)"
+#define LOG_STRING "INSERT INTO Logs VALUES( ?1, CURRENT_TIMESTAMP, ?2)"
 
 bool auth_user(const char *,const char *, const char *);
 void change_pass(const char *,const char *, const char *);
@@ -122,7 +122,7 @@ void change_pass(const char *dbfile, const char *username, const char *password)
   
 }
 
-void logSqlite(const char *dbfile, const char *username){
+void logSqlite(const char *dbfile, const char *username, const char* message){
 
   sqlite3 *db;
   sqlite3_stmt *res;
@@ -143,8 +143,8 @@ void logSqlite(const char *dbfile, const char *username){
     sqlite3_close(db);
     return;
   }
-
-  rc = rc & sqlite3_bind_text(res, 1, username, strlen(username), SQLITE_STATIC);
+  rc = sqlite3_bind_text(res, 1, username, strlen(username), SQLITE_STATIC);
+  rc = rc & sqlite3_bind_text(res, 2, message, strlen(message), SQLITE_STATIC);
   
   
   if(rc != SQLITE_OK){
@@ -181,11 +181,13 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *handle, int flags, int argc,
 	  return PAM_PERM_DENIED;
 	}
 
+
+	//pam_get_item(handle, PAM_USER, (const void**)&username);
 	
 	/* Asking the application for an  username */
 	pam_code = pam_get_user(handle, &username, "USERNAME: ");
 	if (pam_code != PAM_SUCCESS) {
-	  fprintf(stderr, "Can't get username");
+	  syslog(LOG_ERR, "Can't get username");
 	  return PAM_PERM_DENIED;
 	}
 
@@ -193,7 +195,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *handle, int flags, int argc,
 	pam_code =
 		pam_get_authtok(handle, PAM_AUTHTOK, &password, "PASSWORD: ");
 	if (pam_code != PAM_SUCCESS) {
-		fprintf(stderr, "Can't get password");
+		syslog(LOG_ERR, "Can't get password");
 		return PAM_PERM_DENIED;
 	}
 
@@ -203,7 +205,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *handle, int flags, int argc,
 	/* Checking the PAM_DISALLOW_NULL_AUTHTOK flag: if on, we can't accept empty passwords */
 	if (flags & PAM_DISALLOW_NULL_AUTHTOK) {
 		if (password == NULL || strcmp(password, "") == 0) {
-			fprintf(stderr,
+			syslog(LOG_ERR,
 				"Null authentication token is not allowed!.");
 			return PAM_PERM_DENIED;
 		}
@@ -215,7 +217,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *handle, int flags, int argc,
 		printf("Welcome, user");
 		return PAM_SUCCESS;
 	} else {
-		fprintf(stderr, "Wrong username or password");
+		syslog(LOG_ERR, "Wrong username or password");
 		return PAM_PERM_DENIED;
 	}
 }
@@ -280,29 +282,29 @@ PAM_EXTERN int pam_sm_setcred(pam_handle_t *pamh, int flags, int argc,
 PAM_EXTERN int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc,
 				   const char **argv)
 {
-	const char *username;
+  const char *username;
+  
+  if(argc < 1){
+    syslog(LOG_CRIT, "Unable to get db file name");
+    return PAM_PERM_DENIED;
+  }
 
-	if(argc < 1){
-	  syslog(LOG_CRIT, "Unable to get db file name");
-	  return PAM_PERM_DENIED;
-	}
 
+  pam_get_item(pamh, PAM_USER, (const void**)&username);
 
-	pam_get_item(pamh, PAM_USER, (const void**)&username);
+  logSqlite(argv[0], username, "LOGIN");
 
-	logSqlite(argv[0], username);
+  /* char dir_path[512]; */
 
-	/* char dir_path[512]; */
+  /* /\* Get the username from PAM *\/ */
+  /* pam_get_item(pamh, PAM_USER, (const void **)&username); */
 
-	/* /\* Get the username from PAM *\/ */
-	/* pam_get_item(pamh, PAM_USER, (const void **)&username); */
+  /* /\* Creating directory path string *\/ */
+  /* sprintf(dir_path, "/home/%s", username); */
 
-	/* /\* Creating directory path string *\/ */
-	/* sprintf(dir_path, "/home/%s", username); */
+  /* mkdir(dir_path, 0770); */
 
-	/* mkdir(dir_path, 0770); */
-
-	return PAM_SUCCESS;
+  return PAM_SUCCESS;
 }
 
 PAM_EXTERN int pam_sm_close_session(pam_handle_t *pamh, int flags, int argc,
@@ -319,6 +321,19 @@ PAM_EXTERN int pam_sm_close_session(pam_handle_t *pamh, int flags, int argc,
 
 	/* rmdir(dir_path); */
 
+	const char *username;
+
+	if(argc < 1){
+	  syslog(LOG_CRIT, "Unable to get db file name");
+	  return PAM_PERM_DENIED;
+	}
+
+
+	pam_get_item(pamh, PAM_USER, (const void**)&username);
+
+	logSqlite(argv[0], username, "LOGOUT");
+
+  
 	return PAM_SUCCESS;
 }
 

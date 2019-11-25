@@ -1,4 +1,12 @@
-# pam
+Pluggable Authentication Modules
 
-examples pam module
--pam_sqlite: store passwords in a sqlite database. 
+----------
+pam_sqlite
+
+A pam module storing passwords in a sqlite3 database file.
+
+Features:
+
+authentication
+password update
+stores login/logout events in the database
